@@ -1,5 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
 # Скачивает инструменты, нужные для сборки:
 #  - Microsoft.Web.WebView2 SDK (NuGet)
 #  - компилятор C# (Roslyn)
@@ -28,7 +30,16 @@ function Get-NuGetPackage {
 
     Write-Host "Распаковка $PackageId..."
     if (Test-Path $Destination) { Remove-Item $Destination -Recurse -Force }
-    Expand-Archive $file -DestinationPath $Destination -Force
+
+    try {
+        # .nupkg — это обычный ZIP, но Expand-Archive принимает только *.zip.
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($file, $Destination)
+    }
+    catch {
+        $zipFile = [System.IO.Path]::ChangeExtension($file, '.zip')
+        Copy-Item $file $zipFile -Force
+        Expand-Archive $zipFile -DestinationPath $Destination -Force
+    }
 }
 
 if (!(Test-Path (Join-Path $toolsDir 'webview2\lib\net462\Microsoft.Web.WebView2.Core.dll'))) {
