@@ -1,0 +1,23 @@
+# Инструменты и промежуточные файлы сборки
+build/tools/
+build/nuget/
+build/out/
+build/payload/
+build/payload.zip
+build/icon/
+build/*.exe
+build/probe/
+
+# Архивы и вспомогательные скрипты
+Max.zip
+build/*.ps1
+
+# Временные и тестовые файлы
+testinstall*/
+finaltest/
+*.log
+Thumbs.db
+.DS_Store
+.vs/
+.idea/
+*.user
