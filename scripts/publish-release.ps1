@@ -1,7 +1,8 @@
 ﻿param(
     [string]$Tag = 'v1.0.2',
     [string]$ReleaseName = 'MAX для Windows 1.0.2',
-    [string]$NotesFile = ''
+    [string]$NotesFile = '',
+    [switch]$ForceRelease
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +31,7 @@ foreach ($file in @($installer, $shaFile, $readmeFile, $sourcesFile, $cerFile, $
 
 $signatureText = [System.IO.File]::ReadAllText($signatureStatusFile, [System.Text.Encoding]::UTF8)
 $trusted = $signatureText -match '(?m)^Trusted=True\s*$'
+$prerelease = (!$trusted) -and (!$ForceRelease)
 if (!$trusted) {
     $ReleaseName += ' (тестовая подпись)'
 }
@@ -68,7 +70,7 @@ $releaseJson = @{
     name = $ReleaseName
     body = $bodyText
     draft = $false
-    prerelease = (!$trusted)
+    prerelease = $prerelease
 } | ConvertTo-Json -Depth 5
 
 $releaseBytes = [System.Text.Encoding]::UTF8.GetBytes($releaseJson)
@@ -83,7 +85,7 @@ try {
         name = $ReleaseName
         body = $bodyText
         draft = $false
-        prerelease = (!$trusted)
+        prerelease = $prerelease
     } | ConvertTo-Json -Depth 5
     $patchBytes = [System.Text.Encoding]::UTF8.GetBytes($patchJson)
     $release = Invoke-RestMethod "https://api.github.com/repos/$owner/$repo/releases/$($release.id)" `
