@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -43,7 +43,7 @@ namespace MaxSetup
         public const string AppExeName = "Max.exe";
         public const string UninstallerName = "Uninstall.exe";
         public const string ProductName = "MAX Messenger";
-        public const string Version = "1.0.1";
+        public const string Version = "1.0.2";
         public const string RegistryUninstallKey =
             @"Software\Microsoft\Windows\CurrentVersion\Uninstall\MAXMessenger";
         public const string RegistryAppKey = @"Software\MAXMessenger";
@@ -151,9 +151,37 @@ namespace MaxSetup
             return WebView2Installer.IsInstalled();
         }
 
+        public static bool IsExistingInstall(string dir)
+        {
+            if (string.IsNullOrEmpty(dir))
+                return false;
+
+            string exe = Path.Combine(dir, AppExeName);
+            if (!File.Exists(exe))
+                return false;
+
+            try
+            {
+                FileVersionInfo info = FileVersionInfo.GetVersionInfo(exe);
+                return string.Equals(info.ProductName, ProductName,
+                                     StringComparison.OrdinalIgnoreCase) &&
+                       string.Equals(info.CompanyName, "MAX",
+                                     StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static bool HasForeignFiles(string dir)
         {
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                return false;
+
+            // Папка с уже установленным MAX обновляется на месте, даже если
+            // пользователь положил туда свои файлы.
+            if (IsExistingInstall(dir))
                 return false;
 
             InstallManifest manifest = InstallManifest.TryLoad(dir);

@@ -688,7 +688,21 @@ namespace MaxSetup
             if (!_launchCheck.Checked) args += " /nolaunch";
 
             if (InstallerEngine.RelaunchElevated(args))
+            {
                 Close();
+                return;
+            }
+
+            _statusLabel.Text = "Повышение прав отменено. Установка не выполнена.";
+            MessageBox.Show(
+                this,
+                "Установка с правами администратора не была запущена. " +
+                "Вероятно, запрос UAC был отменён.\n\n" +
+                "MAX не изменён. Можно выбрать папку в профиле пользователя " +
+                "или повторить установку.",
+                "MAX",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
         }
 
         private void HandleUninstallElevation(string dir, bool deleteData, string profileDir)
@@ -713,14 +727,31 @@ namespace MaxSetup
                 MessageBoxIcon.Warning);
 
             if (answer != DialogResult.Yes)
+            {
+                _statusLabel.Text = "Удаление отменено. Изменения не внесены.";
                 return;
+            }
 
             string args = "/uninstall /dir=\"" + dir + "\"";
             args += deleteData ? " /deletedata" : " /keepdata";
             args += " /profiledir=\"" + profileDir + "\"";
 
             if (InstallerEngine.RelaunchElevated(args))
+            {
                 Close();
+                return;
+            }
+
+            _statusLabel.Text = "Повышение прав отменено. Удаление не выполнено.";
+            MessageBox.Show(
+                this,
+                "Удаление с правами администратора не было запущено. " +
+                "Вероятно, запрос UAC был отменён.\n\n" +
+                "MAX не изменён. Можно повторить удаление или запустить " +
+                "установщик от имени администратора.",
+                "MAX",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
         }
 
         private static bool IsAccessDenied(Exception ex)

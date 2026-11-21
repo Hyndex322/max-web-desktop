@@ -1,6 +1,6 @@
 ﻿param(
     [string]$OutputPath = '',
-    [string]$Version = '1.0.1'
+    [string]$Version = '1.0.2'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,6 +26,7 @@ try {
         'docs',
         'dist\README-INSTALL.txt',
         'dist\SHA256.txt',
+        'dist\SIGNATURE-STATUS.txt',
         'dist\MAX-Publisher.cer'
     )
 

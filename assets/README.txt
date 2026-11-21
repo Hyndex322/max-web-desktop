@@ -51,6 +51,15 @@ MAX для Windows (web.max.ru)
 
 В журналах нет полных URL, query-параметров и полных локальных путей.
 
+ПОДПИСЬ
+-------
+Max.exe и MaxSetup.exe подписаны Authenticode с меткой времени.
+Сборка 1.0.2 использует самоподписанный сертификат, поэтому SmartScreen
+может показать предупреждение. Статус подписи: SIGNATURE-STATUS.txt.
+
+Протокол приёмки:
+https://github.com/Hyndex322/max-web-desktop/blob/v1.0.2/docs/ACCEPTANCE.md
+
 ВЕРСИЯ
 ------
-1.0.1
+1.0.2

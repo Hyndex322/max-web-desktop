@@ -468,6 +468,7 @@ namespace MaxMessenger
                 return;
 
             string action = message.Substring("max-shell:".Length);
+            Logger.Info("Hotkey action: " + action);
             switch (action)
             {
                 case "reload":
@@ -722,24 +723,28 @@ namespace MaxMessenger
         {
             if (keyData == Keys.F5 || keyData == (Keys.Control | Keys.R))
             {
+                Logger.Info("Hotkey action: reload");
                 if (_coreReady) _webView.Reload();
                 return true;
             }
 
             if (keyData == Keys.F11)
             {
+                Logger.Info("Hotkey action: fullscreen");
                 SetFullScreen(!_fullScreen);
                 return true;
             }
 
             if (keyData == Keys.Escape && _fullScreen)
             {
+                Logger.Info("Hotkey action: exitFullscreen");
                 SetFullScreen(false);
                 return true;
             }
 
             if (keyData == (Keys.Alt | Keys.Left))
             {
+                Logger.Info("Hotkey action: back");
                 if (_coreReady && _webView.CoreWebView2.CanGoBack)
                     _webView.CoreWebView2.GoBack();
                 return true;
@@ -747,6 +752,7 @@ namespace MaxMessenger
 
             if (keyData == (Keys.Alt | Keys.Right))
             {
+                Logger.Info("Hotkey action: forward");
                 if (_coreReady && _webView.CoreWebView2.CanGoForward)
                     _webView.CoreWebView2.GoForward();
                 return true;
@@ -754,6 +760,7 @@ namespace MaxMessenger
 
             if (keyData == (Keys.Control | Keys.D0))
             {
+                Logger.Info("Hotkey action: zoomReset");
                 if (_coreReady) _webView.ZoomFactor = 1.0;
                 return true;
             }
@@ -761,6 +768,7 @@ namespace MaxMessenger
             if (keyData == (Keys.Control | Keys.Oemplus) ||
                 keyData == (Keys.Control | Keys.Add))
             {
+                Logger.Info("Hotkey action: zoomIn");
                 if (_coreReady) _webView.ZoomFactor = Math.Min(3.0, _webView.ZoomFactor + 0.1);
                 return true;
             }
@@ -768,6 +776,7 @@ namespace MaxMessenger
             if (keyData == (Keys.Control | Keys.OemMinus) ||
                 keyData == (Keys.Control | Keys.Subtract))
             {
+                Logger.Info("Hotkey action: zoomOut");
                 if (_coreReady) _webView.ZoomFactor = Math.Max(0.5, _webView.ZoomFactor - 0.1);
                 return true;
             }

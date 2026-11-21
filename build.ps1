@@ -4,6 +4,7 @@
     [string]$Thumbprint,
     [switch]$SelfSign,
     [switch]$NoSign,
+    [switch]$RequireTrustedSignature,
     [string]$TimestampUrl = 'http://timestamp.digicert.com'
 )
 
@@ -22,7 +23,7 @@ $iconTools = Join-Path $base 'build\IconTools.exe'
 $bootstrap = Join-Path $base 'bootstrap-tools.ps1'
 $signScript = Join-Path $base 'scripts\sign-release.ps1'
 $sourceScript = Join-Path $base 'scripts\make-sources.ps1'
-$version = '1.0.1'
+$version = '1.0.2'
 
 if (!(Test-Path $csc) -or
     !(Test-Path (Join-Path $wv 'Microsoft.Web.WebView2.Core.dll')) -or
@@ -258,6 +259,33 @@ Write-Host 'Writing SHA256.txt...'
 $setupHash = (Get-FileHash $setupOut -Algorithm SHA256).Hash
 Set-Content -Path (Join-Path $dist 'SHA256.txt') `
     -Value ("$setupHash *MaxSetup.exe") -Encoding ASCII
+
+Write-Host 'Checking signature trust...'
+$appSignature = Get-AuthenticodeSignature (Join-Path $appOut 'Max.exe')
+$setupSignature = Get-AuthenticodeSignature $setupOut
+$trusted = $setupSignature.Status -eq 'Valid' -and $appSignature.Status -eq 'Valid'
+
+$signatureLines = @(
+    "BuildVersion=$version",
+    "MaxExeStatus=$($appSignature.Status)",
+    "MaxSetupExeStatus=$($setupSignature.Status)",
+    "Trusted=$trusted",
+    "MaxExeSigner=$($appSignature.SignerCertificate.Subject)",
+    "MaxSetupExeSigner=$($setupSignature.SignerCertificate.Subject)",
+    "MaxExeTimestamp=$([bool]$appSignature.TimeStamperCertificate)",
+    "MaxSetupExeTimestamp=$([bool]$setupSignature.TimeStamperCertificate)",
+    "CheckedAt=$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
+)
+Set-Content -Path (Join-Path $dist 'SIGNATURE-STATUS.txt') `
+    -Value $signatureLines -Encoding UTF8
+
+if ($RequireTrustedSignature -and !$trusted) {
+    throw "Сборка не прошла проверку доверенной подписи: Max.exe=$($appSignature.Status), MaxSetup.exe=$($setupSignature.Status)."
+}
+
+if (!$trusted) {
+    Write-Warning ("Подпись не является доверенной для Windows: Max.exe={0}, MaxSetup.exe={1}. Сборка тестовая." -f $appSignature.Status, $setupSignature.Status)
+}
 
 Write-Host 'Creating sources archive...'
 & $sourceScript -OutputPath (Join-Path $dist "MAX-$version-sources.zip") -Version $version

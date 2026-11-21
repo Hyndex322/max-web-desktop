@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -166,7 +166,7 @@ namespace MaxMessenger
     {
         public const string Name = "MAX";
         public const string WindowTitle = "MAX";
-        public const string Version = "1.0.1";
+        public const string Version = "1.0.2";
         public const string StartUrl = "https://web.max.ru/";
     }
 

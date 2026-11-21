@@ -1,0 +1,9 @@
+﻿BuildVersion=1.0.2
+MaxExeStatus=UnknownError
+MaxSetupExeStatus=UnknownError
+Trusted=False
+MaxExeSigner=CN=MAX Messenger (unofficial build), O=MAX Messenger, C=RU
+MaxSetupExeSigner=CN=MAX Messenger (unofficial build), O=MAX Messenger, C=RU
+MaxExeTimestamp=True
+MaxSetupExeTimestamp=True
+CheckedAt=2026-11-21 18:47:44

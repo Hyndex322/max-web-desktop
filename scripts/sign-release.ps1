@@ -22,7 +22,7 @@ function New-PublisherCertificate {
         -HashAlgorithm SHA256 `
         -CertStoreLocation 'Cert:\CurrentUser\My' `
         -NotAfter (Get-Date).AddYears(3) `
-        -FriendlyName 'MAX Messenger Publisher 1.0.1'
+        -FriendlyName 'MAX Messenger Publisher 1.0.2'
 }
 
 $cert = $null
