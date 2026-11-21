@@ -39,7 +39,7 @@ namespace MaxSetup
             Text = _uninstallMode ? "Удаление MAX" : "Установка MAX";
             Font = new Font("Segoe UI", 9.5F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(660, 430);
+            ClientSize = new Size(660, 500);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -62,7 +62,7 @@ namespace MaxSetup
                 BuildInstallControls();
 
             _progress = new ProgressBar();
-            _progress.Location = new Point(24, 300);
+            _progress.Location = new Point(24, 360);
             _progress.Size = new Size(612, 10);
             _progress.Minimum = 0;
             _progress.Maximum = 100;
@@ -70,7 +70,7 @@ namespace MaxSetup
             Controls.Add(_progress);
 
             _statusLabel = new Label();
-            _statusLabel.Location = new Point(24, 316);
+            _statusLabel.Location = new Point(24, 376);
             _statusLabel.Size = new Size(612, 22);
             _statusLabel.AutoEllipsis = true;
             _statusLabel.ForeColor = Color.FromArgb(90, 90, 105);
@@ -79,14 +79,14 @@ namespace MaxSetup
 
             _cancelButton = new Button();
             _cancelButton.Text = "Отмена";
-            _cancelButton.Location = new Point(330, 366);
+            _cancelButton.Location = new Point(330, 426);
             _cancelButton.Size = new Size(104, 40);
             _cancelButton.DialogResult = DialogResult.Cancel;
             Controls.Add(_cancelButton);
             CancelButton = _cancelButton;
 
             _actionButton = new Button();
-            _actionButton.Location = new Point(444, 366);
+            _actionButton.Location = new Point(444, 426);
             _actionButton.Size = new Size(192, 40);
             _actionButton.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
             _actionButton.BackColor = Color.FromArgb(104, 78, 235);
@@ -115,7 +115,7 @@ namespace MaxSetup
 
             var footer = new Label();
             footer.Text = "Версия " + InstallerEngine.Version;
-            footer.Location = new Point(24, 378);
+            footer.Location = new Point(24, 438);
             footer.AutoSize = true;
             footer.ForeColor = Color.FromArgb(150, 150, 165);
             footer.Font = new Font("Segoe UI", 8.25F);
@@ -215,12 +215,22 @@ namespace MaxSetup
 
             var info = new Label();
             info.Text =
-                "Файлы будут установлены в папку Max на выбранном диске. " +
-                "Если для записи нужны права администратора, установщик предложит их получить.";
+                "По умолчанию MAX устанавливается в папку пользователя и не требует прав администратора. " +
+                "Можно выбрать любой диск. Если в выбранной папке уже есть посторонние файлы, " +
+                "установщик предложит подпапку MAX. Профиль входа сохраняется отдельно.";
             info.Location = new Point(24, 248);
-            info.Size = new Size(612, 40);
+            info.Size = new Size(612, 66);
             info.ForeColor = Color.FromArgb(105, 105, 120);
             Controls.Add(info);
+
+            var webViewInfo = new Label();
+            webViewInfo.Text =
+                "Компонент Microsoft Edge WebView2 при необходимости устанавливается автоматически. " +
+                "Для этого нужен интернет; при сбое установщик предложит повторить.";
+            webViewInfo.Location = new Point(24, 306);
+            webViewInfo.Size = new Size(612, 44);
+            webViewInfo.ForeColor = Color.FromArgb(105, 105, 120);
+            Controls.Add(webViewInfo);
 
             PopulateDrives();
         }
@@ -246,18 +256,30 @@ namespace MaxSetup
             Controls.Add(path);
 
             _deleteDataCheck = new CheckBox();
-            _deleteDataCheck.Text = "Удалить также сохранённую сессию и настройки";
+            _deleteDataCheck.Text =
+                "Удалить также сохранённый профиль WebView2 (сбросить вход в аккаунт)";
             _deleteDataCheck.Location = new Point(24, 182);
             _deleteDataCheck.AutoSize = true;
-            _deleteDataCheck.Checked = !_options.KeepData;
+            _deleteDataCheck.Checked = _options.DeleteData;
             Controls.Add(_deleteDataCheck);
+
+            var dataInfo = new Label();
+            dataInfo.Text =
+                "По умолчанию профиль сохраняется: после повторной установки вход останется. " +
+                "Отметьте флажок выше, только если нужно удалить сохранённый вход, cookies и настройки. " +
+                "Этот выбор применяется и при перезапуске удаления с правами администратора.";
+            dataInfo.Location = new Point(24, 212);
+            dataInfo.Size = new Size(612, 66);
+            dataInfo.ForeColor = Color.FromArgb(105, 105, 120);
+            Controls.Add(dataInfo);
 
             var info = new Label();
             info.Text =
-                "Будут удалены файлы программы, ярлыки на рабочем столе и в меню «Пуск», " +
-                "а также запись в списке установленных программ Windows.";
-            info.Location = new Point(24, 216);
-            info.Size = new Size(612, 44);
+                "Будут удалены только файлы программы, ярлыки MAX и запись в списке установленных " +
+                "программ Windows. Посторонние файлы в папке установки сохраняются; папка удаляется, " +
+                "только если осталась пустой.";
+            info.Location = new Point(24, 286);
+            info.Size = new Size(612, 62);
             info.ForeColor = Color.FromArgb(105, 105, 120);
             Controls.Add(info);
         }
@@ -267,13 +289,12 @@ namespace MaxSetup
             _initializing = true;
             try
             {
-                string systemRoot = Path.GetPathRoot(Environment.SystemDirectory) ?? @"C:\";
                 string initialPath = _options.Dir;
 
                 if (string.IsNullOrEmpty(initialPath))
                 {
                     string installed = InstallerEngine.GetInstalledDir();
-                    initialPath = installed ?? Path.Combine(systemRoot, "Max");
+                    initialPath = installed ?? InstallerEngine.DefaultInstallDir;
                 }
 
                 try
@@ -389,9 +410,13 @@ namespace MaxSetup
                 return;
             }
 
+            dir = ResolveForeignFolder(dir);
+            if (string.IsNullOrEmpty(dir))
+                return;
+
             _pathBox.Text = dir;
 
-            if (InstallerEngine.IsAppRunning())
+            if (InstallerEngine.IsAppRunning(dir))
             {
                 DialogResult answer = MessageBox.Show(
                     this,
@@ -404,54 +429,139 @@ namespace MaxSetup
                     return;
             }
 
-            SetBusy(true);
-            _statusLabel.Text = "Подготовка...";
-            var progress = new Progress<InstallProgress>(UpdateProgress);
+            bool allowWithoutWebView2 = false;
 
-            try
+            while (true)
             {
-                await Task.Run(delegate
-                {
-                    InstallerEngine.Install(dir, _desktopCheck.Checked, progress);
-                });
+                SetBusy(true);
+                _statusLabel.Text = "Подготовка...";
+                var progress = new Progress<InstallProgress>(UpdateProgress);
 
-                if (_launchCheck.Checked)
-                    InstallerEngine.Launch(dir);
-
-                string message = "MAX успешно установлен.\n\nПапка: " + dir;
-                if (_desktopCheck.Checked)
+                try
                 {
-                    string desktopLink = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                        "MAX.lnk");
-                    message += File.Exists(desktopLink)
-                        ? "\n\nЯрлык MAX добавлен на рабочий стол."
-                        : "\n\nНе удалось создать ярлык на рабочем столе.";
+                    InstallResult result = null;
+                    await Task.Run(delegate
+                    {
+                        result = InstallerEngine.Install(
+                            dir, _desktopCheck.Checked, allowWithoutWebView2, progress);
+                    });
+
+                    if (_launchCheck.Checked)
+                        InstallerEngine.Launch(result.InstallDir);
+
+                    string message = result.Updated
+                        ? "MAX успешно обновлён."
+                        : "MAX успешно установлен.";
+                    message += "\n\nПапка: " + result.InstallDir;
+
+                    if (_desktopCheck.Checked)
+                    {
+                        string desktopLink = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                            "MAX.lnk");
+                        message += File.Exists(desktopLink)
+                            ? "\n\nЯрлык MAX добавлен на рабочий стол."
+                            : "\n\nНе удалось создать ярлык на рабочем столе.";
+                    }
+
+                    if (!string.IsNullOrEmpty(result.Warning))
+                        message += "\n\n" + result.Warning;
+
+                    MessageBox.Show(this, message, "MAX",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Close();
+                    return;
                 }
+                catch (WebView2InstallException ex)
+                {
+                    DialogResult answer = MessageBox.Show(
+                        this,
+                        ex.Message +
+                        "\n\nДа — повторить установку компонента.\n" +
+                        "Нет — установить MAX без WebView2 (приложение попросит " +
+                        "установить компонент при первом запуске).\n" +
+                        "Отмена — прервать установку.",
+                        "MAX",
+                        MessageBoxButtons.YesNoCancel,
+                        MessageBoxIcon.Warning);
 
-                MessageBox.Show(this, message, "MAX", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                Close();
+                    if (answer == DialogResult.Yes)
+                    {
+                        allowWithoutWebView2 = false;
+                        continue;
+                    }
+                    if (answer == DialogResult.No)
+                    {
+                        allowWithoutWebView2 = true;
+                        continue;
+                    }
+                    return;
+                }
+                catch (Exception ex) when (IsAccessDenied(ex))
+                {
+                    Logger.Write("Access denied during install: " + ex.GetType().Name +
+                                 " 0x" + ex.HResult.ToString("X8"));
+                    HandleElevation(dir);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Write("Install failed: " + ex.GetType().Name +
+                                 " 0x" + ex.HResult.ToString("X8") + " " + ex.Message);
+                    MessageBox.Show(
+                        this,
+                        "Не удалось установить MAX.\n\n" + ex.Message +
+                        "\n\nЖурнал: " + Logger.FilePath,
+                        "MAX",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return;
+                }
+                finally
+                {
+                    if (!IsDisposed) SetBusy(false);
+                }
             }
-            catch (Exception ex) when (IsAccessDenied(ex))
+        }
+
+        private string ResolveForeignFolder(string dir)
+        {
+            if (!InstallerEngine.HasForeignFiles(dir))
+                return dir;
+
+            DialogResult answer = MessageBox.Show(
+                this,
+                "В выбранной папке уже есть другие файлы:\n" + dir +
+                "\n\nСоздать внутри неё подпапку MAX?\n\n" +
+                "Да — установить в " + Path.Combine(dir, "MAX") + "\n" +
+                "Нет — выбрать другую папку\n" +
+                "Отмена — прервать установку",
+                "MAX",
+                MessageBoxButtons.YesNoCancel,
+                MessageBoxIcon.Question);
+
+            if (answer == DialogResult.Yes)
             {
-                Logger.Write("Access denied during install: " + ex);
-                HandleElevation(dir);
+                try
+                {
+                    return InstallerEngine.NormalizeInstallDir(
+                        Path.Combine(dir, "MAX"));
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, ex.Message, "MAX",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return null;
+                }
             }
-            catch (Exception ex)
+
+            if (answer == DialogResult.No)
             {
-                Logger.Write("Install failed: " + ex);
-                MessageBox.Show(
-                    this,
-                    "Не удалось установить MAX.\n\n" + ex.Message +
-                    "\n\nЖурнал: " + Logger.FilePath,
-                    "MAX",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                _pathBox.Focus();
+                _pathBox.SelectAll();
             }
-            finally
-            {
-                if (!IsDisposed) SetBusy(false);
-            }
+
+            return null;
         }
 
         private async Task RunUninstallAsync()
@@ -468,9 +578,15 @@ namespace MaxSetup
                 return;
             }
 
+            bool deleteData = _deleteDataCheck.Checked;
+            string profileDir = SetupOptions.ResolveProfileDir(_options.ProfileDir);
+
             DialogResult answer = MessageBox.Show(
                 this,
-                "Удалить MAX с этого компьютера?",
+                "Удалить MAX с этого компьютера?\n\n" +
+                (deleteData
+                    ? "Сохранённый профиль WebView2 будет удалён. Для входа потребуется авторизоваться заново."
+                    : "Сохранённый профиль WebView2 будет оставлен. Вход и настройки сохранятся."),
                 "MAX",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
@@ -478,36 +594,53 @@ namespace MaxSetup
             if (answer != DialogResult.Yes)
                 return;
 
-            bool deleteData = _deleteDataCheck.Checked;
             SetBusy(true);
             _statusLabel.Text = "Удаление...";
             var progress = new Progress<InstallProgress>(UpdateProgress);
 
             try
             {
+                UninstallResult result = null;
                 await Task.Run(delegate
                 {
-                    InstallerEngine.Uninstall(dir, !deleteData, progress);
+                    result = InstallerEngine.Uninstall(
+                        dir, !deleteData, profileDir, progress);
                 });
 
-                MessageBox.Show(
-                    this,
-                    "MAX удалён с компьютера." +
-                    (deleteData ? string.Empty : "\n\nДанные входа и настройки сохранены."),
-                    "MAX",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                string message = "MAX удалён с компьютера.";
 
+                if (result.FolderPreserved)
+                {
+                    message += result.CleanupScheduled
+                        ? "\n\nПапка установки будет очищена после завершения удаления; " +
+                          "посторонние файлы сохраняются."
+                        : "\n\nПапка установки сохранена, так как в ней остались другие файлы.";
+                }
+                else
+                {
+                    message += "\n\nПапка установки удалена.";
+                }
+
+                if (result.UserDataDeleted)
+                    message += "\n\nСохранённый профиль WebView2 удалён. " +
+                               "Для входа потребуется авторизоваться заново.";
+                else if (result.UserDataPreserved)
+                    message += "\n\nСохранённый профиль WebView2 оставлен.";
+
+                MessageBox.Show(this, message, "MAX",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
                 Close();
             }
             catch (Exception ex) when (IsAccessDenied(ex))
             {
-                Logger.Write("Access denied during uninstall: " + ex);
-                HandleUninstallElevation(dir, deleteData);
+                Logger.Write("Access denied during uninstall: " + ex.GetType().Name +
+                             " 0x" + ex.HResult.ToString("X8"));
+                HandleUninstallElevation(dir, deleteData, profileDir);
             }
             catch (Exception ex)
             {
-                Logger.Write("Uninstall failed: " + ex);
+                Logger.Write("Uninstall failed: " + ex.GetType().Name +
+                             " 0x" + ex.HResult.ToString("X8") + " " + ex.Message);
                 MessageBox.Show(
                     this,
                     "Не удалось полностью удалить MAX.\n\n" + ex.Message +
@@ -546,7 +679,7 @@ namespace MaxSetup
 
             if (answer != DialogResult.Yes)
             {
-                _statusLabel.Text = "Выберите другую папку, например на другом диске.";
+                _statusLabel.Text = "Выберите другую папку, например в профиле пользователя.";
                 return;
             }
 
@@ -558,7 +691,7 @@ namespace MaxSetup
                 Close();
         }
 
-        private void HandleUninstallElevation(string dir, bool deleteData)
+        private void HandleUninstallElevation(string dir, bool deleteData, string profileDir)
         {
             if (InstallerEngine.IsElevated())
             {
@@ -583,7 +716,8 @@ namespace MaxSetup
                 return;
 
             string args = "/uninstall /dir=\"" + dir + "\"";
-            if (!deleteData) args += " /keepdata";
+            args += deleteData ? " /deletedata" : " /keepdata";
+            args += " /profiledir=\"" + profileDir + "\"";
 
             if (InstallerEngine.RelaunchElevated(args))
                 Close();

@@ -14,8 +14,11 @@ build/*.ps1
 
 # Временные и тестовые файлы
 testinstall*/
+testprofile*/
 finaltest/
 *.log
+*.pfx
+*.snk
 Thumbs.db
 .DS_Store
 .vs/

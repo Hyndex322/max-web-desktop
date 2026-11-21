@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
+using MaxCommon;
 using Microsoft.Web.WebView2.Core;
 
 namespace MaxMessenger
@@ -21,12 +22,17 @@ namespace MaxMessenger
                 ? Path.Combine(Path.GetTempPath(), "max-selftest-result.txt")
                 : null;
 
+            string policyTestPath = GetArgValue(args, "/policy-test");
+            if (!string.IsNullOrEmpty(policyTestPath))
+                return PolicySelfTest.Run(policyTestPath);
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
             Logger.Init();
             Logger.Info("=== MAX Messenger " + AppInfo.Version + " starting ===");
+            Logger.Info("Process architecture: " + (Environment.Is64BitProcess ? "64-bit" : "32-bit"));
 
             AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandled;
             Application.ThreadException += OnThreadException;
@@ -138,13 +144,29 @@ namespace MaxMessenger
             }
             return false;
         }
+
+        private static string GetArgValue(string[] args, string name)
+        {
+            if (args == null) return null;
+            for (int i = 0; i < args.Length; i++)
+            {
+                string arg = args[i] ?? string.Empty;
+                if (string.Equals(arg, name, StringComparison.OrdinalIgnoreCase))
+                    return i + 1 < args.Length ? args[i + 1] : null;
+
+                string prefix = name + "=";
+                if (arg.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return arg.Substring(prefix.Length).Trim('"');
+            }
+            return null;
+        }
     }
 
     internal static class AppInfo
     {
         public const string Name = "MAX";
         public const string WindowTitle = "MAX";
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.1";
         public const string StartUrl = "https://web.max.ru/";
     }
 
@@ -231,12 +253,19 @@ namespace MaxMessenger
             try
             {
                 if (_file == null) Init();
+                string safeMessage = LogSanitizer.Sanitize(message);
+                string exceptionText = ex == null
+                    ? string.Empty
+                    : " :: " + ex.GetType().Name +
+                      " [0x" + ex.HResult.ToString("X8") + "]: " +
+                      LogSanitizer.Sanitize(ex.Message);
+
                 string line = string.Format(
                     "{0:yyyy-MM-dd HH:mm:ss.fff} [{1}] {2}{3}{4}",
                     DateTime.Now,
                     level,
-                    message,
-                    ex == null ? string.Empty : " :: " + ex.GetType().Name + ": " + ex.Message,
+                    safeMessage,
+                    exceptionText,
                     Environment.NewLine);
 
                 lock (Sync)

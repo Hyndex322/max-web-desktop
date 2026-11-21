@@ -2,7 +2,9 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using MaxCommon;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -10,6 +12,23 @@ namespace MaxMessenger
 {
     public sealed class MainForm : Form
     {
+        private const string HotkeyScript =
+            "(function(){" +
+            "if(window.__maxShellKeysInstalled)return;" +
+            "window.__maxShellKeysInstalled=true;" +
+            "document.addEventListener('keydown',function(e){" +
+            "var k=e.key;var c=e.ctrlKey;var a=e.altKey;var s=e.shiftKey;var action=null;" +
+            "if(k==='F5'||(c&&!a&&!s&&(k==='r'||k==='R')))action='reload';" +
+            "else if(k==='F11')action='fullscreen';" +
+            "else if(k==='Escape'&&window.__maxShellFullScreen)action='exitFullscreen';" +
+            "else if(a&&!c&&!s&&k==='ArrowLeft')action='back';" +
+            "else if(a&&!c&&!s&&k==='ArrowRight')action='forward';" +
+            "else if(c&&!a&&!s&&(k==='+'||k==='='||k==='Add'))action='zoomIn';" +
+            "else if(c&&!a&&!s&&(k==='-'||k==='_'||k==='Subtract'))action='zoomOut';" +
+            "else if(c&&!a&&!s&&k==='0')action='zoomReset';" +
+            "if(action){e.preventDefault();e.stopPropagation();" +
+            "try{chrome.webview.postMessage('max-shell:'+action);}catch(_){}}},true);})();";
+
         private readonly bool _selfTest;
         private readonly string _selfTestResultPath;
         private readonly WebView2 _webView;
@@ -17,6 +36,7 @@ namespace MaxMessenger
         private readonly Label _errorTitle;
         private readonly Label _errorDetails;
         private readonly Button _retryButton;
+        private readonly Button _logButton;
         private readonly FlowLayoutPanel _errorContent;
         private readonly Timer _selfTestTimer;
         private readonly AppSettings _settings;
@@ -70,6 +90,12 @@ namespace MaxMessenger
             _retryButton.Margin = new Padding(0);
             _retryButton.Click += delegate { Retry(); };
 
+            _logButton = new Button();
+            _logButton.Text = "Открыть журнал";
+            _logButton.Size = new Size(150, 34);
+            _logButton.Margin = new Padding(0, 12, 0, 0);
+            _logButton.Click += delegate { OpenLogFolder(); };
+
             _errorContent = new FlowLayoutPanel();
             _errorContent.FlowDirection = FlowDirection.TopDown;
             _errorContent.WrapContents = false;
@@ -79,6 +105,7 @@ namespace MaxMessenger
             _errorContent.Controls.Add(_errorTitle);
             _errorContent.Controls.Add(_errorDetails);
             _errorContent.Controls.Add(_retryButton);
+            _errorContent.Controls.Add(_logButton);
 
             _errorPanel = new Panel();
             _errorPanel.Dock = DockStyle.Fill;
@@ -189,14 +216,15 @@ namespace MaxMessenger
 
                 await _webView.EnsureCoreWebView2Async(environment);
 
-                ConfigureCoreWebView2(_webView.CoreWebView2);
+                await ConfigureCoreWebView2Async(_webView.CoreWebView2);
                 _coreReady = true;
 
                 if (_selfTest)
                     _selfTestTimer.Start();
 
                 _webView.CoreWebView2.Navigate(AppInfo.StartUrl);
-                Logger.Info("Navigating to " + AppInfo.StartUrl);
+                Logger.Info("Navigating to start page");
+                _webView.Focus();
             }
             catch (Exception ex)
             {
@@ -206,7 +234,7 @@ namespace MaxMessenger
             }
         }
 
-        private void ConfigureCoreWebView2(CoreWebView2 core)
+        private async Task ConfigureCoreWebView2Async(CoreWebView2 core)
         {
             CoreWebView2Settings settings = core.Settings;
             settings.AreDevToolsEnabled = false;
@@ -219,6 +247,7 @@ namespace MaxMessenger
             settings.IsPasswordAutosaveEnabled = false;
             settings.IsGeneralAutofillEnabled = false;
             settings.AreHostObjectsAllowed = false;
+            settings.IsWebMessageEnabled = true;
 
             core.NewWindowRequested += Core_NewWindowRequested;
             core.PermissionRequested += Core_PermissionRequested;
@@ -227,49 +256,118 @@ namespace MaxMessenger
             core.NavigationStarting += Core_NavigationStarting;
             core.NavigationCompleted += Core_NavigationCompleted;
             core.ContainsFullScreenElementChanged += Core_ContainsFullScreenElementChanged;
+            core.WebMessageReceived += Core_WebMessageReceived;
+
+            // Горячие клавиши внутри WebView2: WinForms не получает нажатия,
+            // когда фокус находится в дочернем окне браузера.
+            try
+            {
+                await core.AddScriptToExecuteOnDocumentCreatedAsync(HotkeyScript);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Failed to install hotkey script", ex);
+            }
         }
 
         private void Core_NewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs e)
         {
+            // Новое окно никогда не создаётся. Доверенные адреса открываются
+            // в текущем окне, внешние HTTP(S)-ссылки — только по действию пользователя.
             e.Handled = true;
 
             string uri = e.Uri;
             if (string.IsNullOrEmpty(uri))
                 return;
 
-            if (IsTrustedUri(uri))
+            ExternalLinkPolicy policy = NavigationPolicy.ClassifyExternalLink(
+                uri, e.IsUserInitiated);
+
+            if (policy == ExternalLinkPolicy.NotExternal)
             {
                 try { _webView.CoreWebView2.Navigate(uri); }
-                catch (Exception ex) { Logger.Error("Navigation failed: " + uri, ex); }
+                catch (Exception ex)
+                {
+                    Logger.Error("Navigation in current window failed", ex);
+                }
                 return;
             }
 
-            OpenExternal(uri);
+            if (policy == ExternalLinkPolicy.HttpBrowser ||
+                policy == ExternalLinkPolicy.SpecialScheme)
+            {
+                OpenExternal(uri);
+                return;
+            }
+
+            Logger.Info("Blocked new window: " + NavigationPolicy.SafeOriginForLog(uri));
         }
 
         private static void OpenExternal(string uri)
         {
             try
             {
-                var parsed = new Uri(uri);
-                if (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)
+                Uri parsed;
+                if (!Uri.TryCreate(uri, UriKind.Absolute, out parsed))
                     return;
 
+                bool http = parsed.Scheme == Uri.UriSchemeHttp ||
+                            parsed.Scheme == Uri.UriSchemeHttps;
+                bool special = string.Equals(parsed.Scheme, "mailto", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(parsed.Scheme, "tel", StringComparison.OrdinalIgnoreCase);
+
+                if (!http && !special)
+                {
+                    Logger.Info("Blocked external scheme");
+                    return;
+                }
+
                 Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+                Logger.Info("Opened external link: " + NavigationPolicy.SafeOriginForLog(uri));
             }
             catch (Exception ex)
             {
-                Logger.Error("Failed to open external link: " + uri, ex);
+                Logger.Error("Failed to open external link", ex);
             }
         }
 
         private void Core_PermissionRequested(object sender, CoreWebView2PermissionRequestedEventArgs e)
         {
-            // Allow camera, microphone, notifications, clipboard and geolocation
-            // only for MAX itself. Everything else is denied.
-            e.State = IsTrustedUri(e.Uri)
-                ? CoreWebView2PermissionState.Allow
-                : CoreWebView2PermissionState.Deny;
+            // Разрешения привязаны к точному HTTPS-источнику и типу запроса.
+            if (!NavigationPolicy.IsTrustedPermissionOrigin(e.Uri))
+            {
+                e.State = CoreWebView2PermissionState.Deny;
+                Logger.Info("Denied permission " + e.PermissionKind +
+                            " for " + NavigationPolicy.SafeOriginForLog(e.Uri));
+                return;
+            }
+
+            switch (e.PermissionKind)
+            {
+                case CoreWebView2PermissionKind.Camera:
+                case CoreWebView2PermissionKind.Microphone:
+                    // Default = стандартный диалог согласия WebView2/Windows.
+                    e.State = CoreWebView2PermissionState.Default;
+                    break;
+
+                case CoreWebView2PermissionKind.Notifications:
+                    // Уведомления нужны мессенджеру; решение принимает пользователь
+                    // в стандартном диалоге.
+                    e.State = CoreWebView2PermissionState.Default;
+                    break;
+
+                case CoreWebView2PermissionKind.ClipboardRead:
+                    // Вставка кода подтверждения из буфера обмена.
+                    e.State = CoreWebView2PermissionState.Allow;
+                    break;
+
+                default:
+                    // Геолокация, файлы, датчики, MIDI, автовоспроизведение и
+                    // остальные разрешения приложению MAX не требуются.
+                    e.State = CoreWebView2PermissionState.Deny;
+                    Logger.Info("Denied permission " + e.PermissionKind);
+                    break;
+            }
         }
 
         private void Core_ProcessFailed(object sender, CoreWebView2ProcessFailedEventArgs e)
@@ -305,12 +403,37 @@ namespace MaxMessenger
 
         private void Core_DownloadStarting(object sender, CoreWebView2DownloadStartingEventArgs e)
         {
-            Logger.Info("Download started: " + e.DownloadOperation.Uri + " -> " + e.ResultFilePath);
+            // Сохраняем стандартное поведение загрузки, но не пишем в журнал
+            // полный URL и полный путь сохранения.
+            e.Handled = false;
+            e.Cancel = false;
+            Logger.Info("Download started: " + LogSanitizer.SafeOrigin(e.DownloadOperation.Uri));
         }
 
         private void Core_NavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e)
         {
             HideError();
+
+            if (NavigationPolicy.IsAllowedNavigation(e.Uri))
+                return;
+
+            e.Cancel = true;
+
+            ExternalLinkPolicy policy = NavigationPolicy.ClassifyExternalLink(
+                e.Uri, e.IsUserInitiated);
+
+            if (!e.IsRedirected &&
+                (policy == ExternalLinkPolicy.HttpBrowser ||
+                 policy == ExternalLinkPolicy.SpecialScheme))
+            {
+                OpenExternal(e.Uri);
+            }
+            else
+            {
+                Logger.Info("Blocked navigation: " +
+                            NavigationPolicy.SafeOriginForLog(e.Uri) +
+                            (e.IsRedirected ? " (redirect)" : string.Empty));
+            }
         }
 
         private void Core_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -319,7 +442,9 @@ namespace MaxMessenger
             {
                 HideError();
                 _rendererRestarts = 0;
-                FinishSelfTest(true, _webView.CoreWebView2.Source);
+                if (_fullScreen)
+                    SetPageFullScreenFlag(true);
+                FinishSelfTest(true, NavigationPolicy.SafeOriginForLog(_webView.CoreWebView2.Source));
                 return;
             }
 
@@ -330,6 +455,48 @@ namespace MaxMessenger
             Logger.Error("Navigation failed: " + e.WebErrorStatus, null);
             ShowError("Не удалось загрузить MAX", message);
             FinishSelfTest(false, e.WebErrorStatus.ToString());
+        }
+
+        private void Core_WebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            string message;
+            try { message = e.TryGetWebMessageAsString(); }
+            catch { return; }
+
+            if (string.IsNullOrEmpty(message) ||
+                !message.StartsWith("max-shell:", StringComparison.Ordinal))
+                return;
+
+            string action = message.Substring("max-shell:".Length);
+            switch (action)
+            {
+                case "reload":
+                    if (_coreReady) _webView.Reload();
+                    break;
+                case "fullscreen":
+                    SetFullScreen(!_fullScreen);
+                    break;
+                case "exitFullscreen":
+                    if (_fullScreen) SetFullScreen(false);
+                    break;
+                case "back":
+                    if (_coreReady && _webView.CoreWebView2.CanGoBack)
+                        _webView.CoreWebView2.GoBack();
+                    break;
+                case "forward":
+                    if (_coreReady && _webView.CoreWebView2.CanGoForward)
+                        _webView.CoreWebView2.GoForward();
+                    break;
+                case "zoomIn":
+                    if (_coreReady) _webView.ZoomFactor = Math.Min(3.0, _webView.ZoomFactor + 0.1);
+                    break;
+                case "zoomOut":
+                    if (_coreReady) _webView.ZoomFactor = Math.Max(0.5, _webView.ZoomFactor - 0.1);
+                    break;
+                case "zoomReset":
+                    if (_coreReady) _webView.ZoomFactor = 1.0;
+                    break;
+            }
         }
 
         private void Core_ContainsFullScreenElementChanged(object sender, object e)
@@ -359,6 +526,24 @@ namespace MaxMessenger
             {
                 FormBorderStyle = _oldBorderStyle;
                 WindowState = _oldWindowState;
+            }
+
+            SetPageFullScreenFlag(enabled);
+        }
+
+        private void SetPageFullScreenFlag(bool enabled)
+        {
+            if (!_coreReady && (_webView == null || _webView.CoreWebView2 == null))
+                return;
+
+            try
+            {
+                _webView.CoreWebView2.ExecuteScriptAsync(
+                    "window.__maxShellFullScreen=" + (enabled ? "true" : "false") + ";");
+            }
+            catch
+            {
+                // Cosmetic/state flag only.
             }
         }
 
@@ -418,7 +603,7 @@ namespace MaxMessenger
                         AppPaths.UserDataDir,
                         null);
                     await _webView.EnsureCoreWebView2Async(environment);
-                    ConfigureCoreWebView2(_webView.CoreWebView2);
+                    await ConfigureCoreWebView2Async(_webView.CoreWebView2);
                     _coreReady = true;
                 }
                 catch (Exception ex)
@@ -432,6 +617,7 @@ namespace MaxMessenger
             try
             {
                 _webView.CoreWebView2.Navigate(AppInfo.StartUrl);
+                _webView.Focus();
             }
             catch (Exception ex)
             {
@@ -440,17 +626,16 @@ namespace MaxMessenger
             }
         }
 
-        private static bool IsTrustedUri(string uri)
+        private void OpenLogFolder()
         {
             try
             {
-                var parsed = new Uri(uri);
-                string host = parsed.Host.ToLowerInvariant();
-                return host == "max.ru" || host.EndsWith(".max.ru", StringComparison.Ordinal);
+                Directory.CreateDirectory(Logger.LogDirectory);
+                Process.Start(new ProcessStartInfo(Logger.LogDirectory) { UseShellExecute = true });
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                Logger.Error("Failed to open log folder", ex);
             }
         }
 
@@ -495,8 +680,7 @@ namespace MaxMessenger
                         _selfTestResultPath,
                         (success ? "OK" : "FAIL") + Environment.NewLine +
                         (details ?? string.Empty) + Environment.NewLine +
-                        "userData=" + AppPaths.UserDataDir + Environment.NewLine +
-                        "userDataExists=" + Directory.Exists(AppPaths.UserDataDir) + Environment.NewLine);
+                        "userDataPresent=" + Directory.Exists(AppPaths.UserDataDir) + Environment.NewLine);
                 }
             }
             catch (Exception ex)

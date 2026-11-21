@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Windows.Forms;
+using MaxCommon;
 
 namespace MaxSetup
 {
@@ -10,11 +11,13 @@ namespace MaxSetup
     {
         public bool Silent;
         public bool Uninstall;
-        public bool KeepData;
+        public bool DeleteData;
         public bool NoDesktop;
         public bool NoLaunch;
         public string Dir;
         public string CleanupDir;
+        public string CleanupId;
+        public string ProfileDir;
 
         public static SetupOptions Parse(string[] args)
         {
@@ -41,7 +44,10 @@ namespace MaxSetup
                         options.Uninstall = true;
                         break;
                     case "/keepdata":
-                        options.KeepData = true;
+                        options.DeleteData = false;
+                        break;
+                    case "/deletedata":
+                        options.DeleteData = true;
                         break;
                     case "/nodesktop":
                         options.NoDesktop = true;
@@ -55,16 +61,62 @@ namespace MaxSetup
                     case "/cleanup":
                         if (i + 1 < args.Length) options.CleanupDir = args[++i];
                         break;
+                    case "/cleanupid":
+                        if (i + 1 < args.Length) options.CleanupId = args[++i];
+                        break;
+                    case "/profiledir":
+                        if (i + 1 < args.Length) options.ProfileDir = args[++i];
+                        break;
                     default:
                         if (lower.StartsWith("/dir="))
+                        {
                             options.Dir = arg.Substring(5).Trim('"');
+                        }
                         else if (lower.StartsWith("/cleanup="))
+                        {
                             options.CleanupDir = arg.Substring(9).Trim('"');
+                        }
+                        else if (lower.StartsWith("/cleanupid="))
+                        {
+                            options.CleanupId = arg.Substring(11).Trim('"');
+                        }
+                        else if (lower.StartsWith("/profiledir="))
+                        {
+                            options.ProfileDir = arg.Substring(12).Trim('"');
+                        }
                         break;
                 }
             }
 
             return options;
+        }
+
+        public static string ResolveProfileDir(string explicitPath)
+        {
+            if (!string.IsNullOrWhiteSpace(explicitPath))
+                return explicitPath;
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MAX Messenger");
+        }
+
+        /// <summary>
+        /// В журнал попадают только имена параметров, без путей.
+        /// </summary>
+        public string SafeSummary()
+        {
+            var parts = new List<string>();
+            if (Silent) parts.Add("/silent");
+            if (Uninstall) parts.Add("/uninstall");
+            if (DeleteData) parts.Add("/deletedata");
+            if (NoDesktop) parts.Add("/nodesktop");
+            if (NoLaunch) parts.Add("/nolaunch");
+            if (!string.IsNullOrEmpty(Dir)) parts.Add("/dir");
+            if (!string.IsNullOrEmpty(CleanupDir)) parts.Add("/cleanup");
+            if (!string.IsNullOrEmpty(CleanupId)) parts.Add("/cleanupid");
+            if (!string.IsNullOrEmpty(ProfileDir)) parts.Add("/profiledir");
+            return parts.Count == 0 ? "(none)" : string.Join(" ", parts.ToArray());
         }
     }
 
@@ -108,7 +160,7 @@ namespace MaxSetup
                             CultureInfo.InvariantCulture,
                             "{0:yyyy-MM-dd HH:mm:ss.fff} {1}{2}",
                             DateTime.Now,
-                            message,
+                            LogSanitizer.Sanitize(message),
                             Environment.NewLine));
                 }
             }

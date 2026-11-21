@@ -1,4 +1,13 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿param(
+    [string]$CertificatePath,
+    [string]$CertificatePassword,
+    [string]$Thumbprint,
+    [switch]$SelfSign,
+    [switch]$NoSign,
+    [string]$TimestampUrl = 'http://timestamp.digicert.com'
+)
+
+$ErrorActionPreference = 'Stop'
 
 $base = Split-Path -Parent $MyInvocation.MyCommand.Path
 $csc = Join-Path $base 'build\tools\roslyn\tasks\net472\csc.exe'
@@ -11,6 +20,9 @@ $icoDir = Join-Path $base 'ico'
 $buildIconDir = Join-Path $base 'build\icon'
 $iconTools = Join-Path $base 'build\IconTools.exe'
 $bootstrap = Join-Path $base 'bootstrap-tools.ps1'
+$signScript = Join-Path $base 'scripts\sign-release.ps1'
+$sourceScript = Join-Path $base 'scripts\make-sources.ps1'
+$version = '1.0.1'
 
 if (!(Test-Path $csc) -or
     !(Test-Path (Join-Path $wv 'Microsoft.Web.WebView2.Core.dll')) -or
@@ -31,6 +43,58 @@ function Invoke-Csc {
     if ($LASTEXITCODE -ne 0) {
         throw "Compilation failed (exit code $LASTEXITCODE)"
     }
+}
+
+$selfSignedCert = $null
+$signThumbprint = $Thumbprint
+$cerOutput = Join-Path $dist 'MAX-Publisher.cer'
+
+if ($SelfSign -and [string]::IsNullOrWhiteSpace($CertificatePath) -and
+    [string]::IsNullOrWhiteSpace($Thumbprint)) {
+    New-Item -ItemType Directory -Force $dist | Out-Null
+    Write-Host 'Создание самоподписанного сертификата издателя...'
+    $selfSignedCert = New-SelfSignedCertificate `
+        -Subject 'CN=MAX Messenger (unofficial build), O=MAX Messenger, C=RU' `
+        -Type CodeSigningCert `
+        -KeyUsage DigitalSignature `
+        -KeyAlgorithm RSA `
+        -KeyLength 3072 `
+        -HashAlgorithm SHA256 `
+        -CertStoreLocation 'Cert:\CurrentUser\My' `
+        -NotAfter (Get-Date).AddYears(3) `
+        -FriendlyName "MAX Messenger Publisher $version"
+    $signThumbprint = $selfSignedCert.Thumbprint
+    Export-Certificate -Cert $selfSignedCert -FilePath $cerOutput -Type CERT | Out-Null
+    Write-Host "  Сертификат: $cerOutput"
+}
+
+function Invoke-SignFiles {
+    param([string[]]$Files)
+
+    if ($NoSign) {
+        Write-Host 'Подпись пропущена (-NoSign).'
+        return
+    }
+
+    if ([string]::IsNullOrWhiteSpace($CertificatePath) -and
+        [string]::IsNullOrWhiteSpace($signThumbprint)) {
+        Write-Warning 'Кодовая подпись не настроена. Max.exe и MaxSetup.exe останутся неподписанными.'
+        return
+    }
+
+    $arguments = @{
+        Files = $Files
+        TimestampUrl = $TimestampUrl
+    }
+    if (![string]::IsNullOrWhiteSpace($CertificatePath)) {
+        $arguments.CertificatePath = $CertificatePath
+        $arguments.CertificatePassword = $CertificatePassword
+    }
+    else {
+        $arguments.Thumbprint = $signThumbprint
+    }
+
+    & $signScript @arguments
 }
 
 Write-Host 'Preparing icons...'
@@ -123,10 +187,16 @@ Invoke-Csc @(
     '/r:System.Drawing.dll',
     "/r:$wv\Microsoft.Web.WebView2.Core.dll",
     "/r:$wv\Microsoft.Web.WebView2.WinForms.dll",
+    "$base\src\common\LogSanitizer.cs",
     "$base\src\app\Program.cs",
+    "$base\src\app\NavigationPolicy.cs",
+    "$base\src\app\PolicySelfTest.cs",
     "$base\src\app\MainForm.cs",
     "$base\src\app\AssemblyInfo.cs"
 )
+
+Write-Host 'Signing MAX.exe...'
+Invoke-SignFiles -Files @("$appOut\Max.exe")
 
 Write-Host 'Copying WebView2 runtime files...'
 Copy-Item "$wv\Microsoft.Web.WebView2.Core.dll" $appOut -Force
@@ -163,8 +233,14 @@ $installerArgs = @(
     '/r:System.dll', '/r:System.Core.dll', '/r:System.Windows.Forms.dll',
     '/r:System.Drawing.dll', '/r:System.IO.Compression.dll',
     '/r:System.IO.Compression.FileSystem.dll', '/r:Microsoft.CSharp.dll',
+    "$base\src\common\LogSanitizer.cs",
     "$base\src\installer\Program.cs",
     "$base\src\installer\EntryPoint.cs",
+    "$base\src\installer\InstallerEngine.cs",
+    "$base\src\installer\SafeFileSystem.cs",
+    "$base\src\installer\InstallManifest.cs",
+    "$base\src\installer\SignatureVerifier.cs",
+    "$base\src\installer\WebView2Installer.cs",
     "$base\src\installer\InstallerForm.cs",
     "$base\src\installer\ShortcutHelper.cs",
     "$base\src\installer\Branding.cs",
@@ -175,8 +251,24 @@ if ($logo) {
 }
 Invoke-Csc -Arguments $installerArgs
 
+Write-Host 'Signing MaxSetup.exe...'
+Invoke-SignFiles -Files @($setupOut)
+
+Write-Host 'Writing SHA256.txt...'
+$setupHash = (Get-FileHash $setupOut -Algorithm SHA256).Hash
+Set-Content -Path (Join-Path $dist 'SHA256.txt') `
+    -Value ("$setupHash *MaxSetup.exe") -Encoding ASCII
+
+Write-Host 'Creating sources archive...'
+& $sourceScript -OutputPath (Join-Path $dist "MAX-$version-sources.zip") -Version $version
+
+if ($selfSignedCert) {
+    Remove-Item ("Cert:\CurrentUser\My\" + $selfSignedCert.Thumbprint) -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host ''
 Write-Host 'Build completed:'
 Get-ChildItem $dist | Format-Table Name, Length, LastWriteTime
 Get-ChildItem $appOut -Recurse -File | Measure-Object Length -Sum |
     ForEach-Object { Write-Host ("App payload size: {0:N2} MB" -f ($_.Sum / 1MB)) }
+Write-Host ("SHA256: {0}" -f $setupHash)
