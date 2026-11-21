@@ -1,6 +1,6 @@
 # MAX для Windows — приложение для web.max.ru
 
-**Скачать установщик:** [последний релиз](https://github.com/Hyndex322/max-web-desktop/releases/latest) · **Файл:** `MaxSetup.exe`
+**Скачать установщик:** [релиз 1.0.2](https://github.com/Hyndex322/max-web-desktop/releases/tag/v1.0.2) · **Файл:** `MaxSetup.exe`
 
 > ℹ️ **Статус 1.0.2:** сборка опубликована как тестовая, потому что доверенный сертификат подписи кода пока не предоставлен. Подпись и метка времени присутствуют, но SmartScreen может предупреждать. Подробности — в разделе «Подпись релиза» и в `SIGNATURE-STATUS.txt`.
 
