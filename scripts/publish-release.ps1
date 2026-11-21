@@ -16,12 +16,13 @@ $readmeFile = Join-Path $dist 'README-INSTALL.txt'
 $sourcesFile = Join-Path $dist 'MAX-1.0.2-sources.zip'
 $cerFile = Join-Path $dist 'MAX-Publisher.cer'
 $signatureStatusFile = Join-Path $dist 'SIGNATURE-STATUS.txt'
+$resourceImage = Join-Path $base 'docs\resource-usage.png'
 
 if ([string]::IsNullOrWhiteSpace($NotesFile)) {
     $NotesFile = Join-Path $base 'docs\RELEASE-1.0.2.md'
 }
 
-foreach ($file in @($installer, $shaFile, $readmeFile, $sourcesFile, $cerFile, $signatureStatusFile, $NotesFile)) {
+foreach ($file in @($installer, $shaFile, $readmeFile, $sourcesFile, $cerFile, $signatureStatusFile, $resourceImage, $NotesFile)) {
     if (!(Test-Path $file)) {
         throw "Не найден файл релиза: $file"
     }
@@ -109,7 +110,8 @@ $wanted = @(
     'README-INSTALL.txt',
     'MAX-1.0.2-sources.zip',
     'MAX-Publisher.cer',
-    'SIGNATURE-STATUS.txt'
+    'SIGNATURE-STATUS.txt',
+    'resource-usage.png'
 )
 
 foreach ($asset in $existing) {
@@ -135,6 +137,7 @@ Upload-Asset -Path $readmeFile -Name 'README-INSTALL.txt' -ContentType 'text/pla
 Upload-Asset -Path $sourcesFile -Name 'MAX-1.0.2-sources.zip' -ContentType 'application/zip'
 Upload-Asset -Path $cerFile -Name 'MAX-Publisher.cer' -ContentType 'application/x-x509-ca-cert'
 Upload-Asset -Path $signatureStatusFile -Name 'SIGNATURE-STATUS.txt' -ContentType 'text/plain'
+Upload-Asset -Path $resourceImage -Name 'resource-usage.png' -ContentType 'image/png'
 
 Write-Output "RELEASE_URL https://github.com/$owner/$repo/releases/tag/$Tag"
 Write-Output "LATEST_URL https://github.com/$owner/$repo/releases/latest"
