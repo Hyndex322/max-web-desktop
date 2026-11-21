@@ -45,8 +45,16 @@ if (Test-Path (Join-Path $base 'src\tools\IconTools.cs')) {
 }
 
 if (Test-Path $icoDir) {
-    $icoFile = Get-ChildItem $icoDir -Filter *.ico -File -ErrorAction SilentlyContinue |
-        Sort-Object Name | Select-Object -First 1
+    $preferredIcon = Join-Path $icoDir 'max.ico'
+    $icoFile = $null
+
+    if (Test-Path $preferredIcon) {
+        $icoFile = Get-Item $preferredIcon
+    }
+    else {
+        $icoFile = Get-ChildItem $icoDir -Filter *.ico -File -ErrorAction SilentlyContinue |
+            Sort-Object Name | Select-Object -First 1
+    }
 
     if ($icoFile) {
         $icon = $icoFile.FullName
@@ -73,9 +81,17 @@ if (!$icon) {
 }
 
 if (!$logo) {
-    $logoFile = Get-ChildItem $icoDir -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Extension -eq '.png' } |
-        Sort-Object Name | Select-Object -First 1
+    $preferredLogo = Join-Path $icoDir 'max-logo.png'
+    $logoFile = $null
+
+    if (Test-Path $preferredLogo) {
+        $logoFile = Get-Item $preferredLogo
+    }
+    else {
+        $logoFile = Get-ChildItem $icoDir -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -eq '.png' } |
+            Sort-Object Name | Select-Object -First 1
+    }
 
     if ($logoFile) {
         $logo = $logoFile.FullName
